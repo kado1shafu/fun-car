@@ -1,0 +1,21 @@
+{
+  "name": "stbot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "tst.js",
+  "dependencies": {
+    "body-parser": "^1.18.2",
+    "cbor": "^3.0.3",
+    "express": "^4.15.5",
+    "express-ws": "^3.0.0",
+    "serial": "^0.0.9",
+    "serialport": "^5.0.0",
+    "ws": "^3.2.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "test"
+  },
+  "author": "Alex Tsigulin",
+  "license": "ISC"
+}
