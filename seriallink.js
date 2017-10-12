@@ -3,9 +3,10 @@ var crc8 =require('./crc8');
 var cbor = require('cbor');
 
 class ITMPSerialLink {
-    constructor(processFrame, name, portname, props) {
+    constructor(itmp, name, portname, props) {
         var that = this;
         this.lnkname=name;
+        this.addressable = true;
         props = props || { baudRate: 115200 };
         this.port = new SerialPort(portname, props, function (err) {
             if (err) {
@@ -13,7 +14,9 @@ class ITMPSerialLink {
             }
         });
 
-        this.process = processFrame; // callback to process incoming frames
+        this.itmp = itmp; 
+
+        this.polls=new Map();
 
         // incoming messages encoding
         this.inbuf = Buffer.allocUnsafe(1024); // buffer for incoming bytes
@@ -41,6 +44,32 @@ class ITMPSerialLink {
           });
     }
 
+    subscribe(subaddr, suburi, opts,done, err){
+        var that  = this;
+        let sub = setInterval(()=>{ 
+            var that2 = that;
+            that.itmp.call(that.lnkname+'/'+subaddr,suburi,null,
+            (data,opts)=>{ 
+                var url=that2.lnkname+'/'+subaddr+'/'+suburi;
+                //if ()
+                that2.itmp.emitEvent(url,data,opts); 
+            }); 
+        },1000);
+        this.polls.set(subaddr+'/'+ suburi, sub);
+        done();
+    }
+
+    unsubscribe(subaddr, suburi, opts,done, err){
+        let timer=this.polls.get(subaddr+'/'+ suburi);
+        if (timer) {
+            clearInterval(timer);
+            done();
+        } else {
+            err();
+        }
+    }
+
+
     income(data) {
         for (var i=0;i<data.length;i++){
             if (this.lastchar === 0x7D) {
@@ -54,9 +83,9 @@ class ITMPSerialLink {
                 if (this.inpos>2 && this.incrc === 0/*this.inbuf[this.inpos-1]*/ ) {
                     let addr = this.inbuf[0];
 
-                    if (typeof this.process === "function") {
+                    if (typeof this.itmp.process === "function") {
                         let msg=cbor.decode(this.inbuf.slice(1,this.inpos-1));
-                        this.process(addr,msg);
+                        this.itmp.process(this.lnkname+'/'+addr,msg);
                     }
             
                     this.lastchar = 0;

@@ -9,7 +9,30 @@ class ITMP extends EventEmitter {
 
         this.transactions = new Map();
         this.subscriptions = new Map();
+
+        this.pollsubs = new Map();
         this.urls = new Map();
+
+        this.addCall("transactions",(args)=>{
+            let ret = [];
+            for(let trid of this.transactions.keys()) {
+                let tr=this.transactions.get(trid);
+                ret.push({id:trid,itmp:tr.msg[0],third:tr.msg[2]});
+            }
+            return ret;
+          });
+
+          this.addCall("subscriptions",(args)=>{
+            let ret = {};
+            for(let sb of this.subscriptions.keys()) {
+              ret[sb]= this.subscriptions.get(sb);
+            }
+            for(let sb of this.pollsubs.keys()) {
+                ret[sb]= this.pollsubs.get(sb);
+              }
+            return ret;
+          });
+                  
     }
 
     addLink(lnk) {
@@ -49,7 +72,7 @@ class ITMP extends EventEmitter {
                         clearTimeout(t.timeout);
                         this.transactions.delete(key);
                         let [code, message] = payload;
-                        if (t.err !== undefined) {t.err( {code:code,message:vessage} );} 
+                        if (t.err !== undefined) {t.err( code,message );} 
                     } else {
                         console.log('unexpected error',msg);
                     }
@@ -66,15 +89,40 @@ class ITMP extends EventEmitter {
                         clearTimeout(t.timeout);
                         this.transactions.delete(key);
                         let [code, message] = payload;
-                        if (t.err !== undefined) {t.err( {code:code,message:vessage} );} 
+                        if (t.err !== undefined) {t.err( code,message );} 
                     } else {
                         console.log('unexpected error',msg);
                     }
                 break;
                 }
                 //Description	
-                case 6: // [DESCRIBE, Request:id, Topic:uri, Options:dict]	get description
-                case 7: {// [DESCRIPTION, DESCRIBE.Request:id, description:list, Options:dict]	description response
+                case 6: { // [DESCRIBE, Request:id, Topic:uri, Options:dict]	get description
+                    let [uri, args, opts] = payload;
+                    var that = this;
+                    if (uri === ""){
+                        this.answer(addr,[7,id,"super puper"]);
+                    } else {
+                        let f=this.urls.get(uri);
+                        if (f !== undefined) {
+                            let ret = f.desription;
+                            this.answer(addr,[7,id,ret]);
+                        } else {
+                            let [link, subaddr, suburi=""] = this.getLink(uri);
+                            if (link !== undefined){
+                                this.transactionLink(link,subaddr,[6,0,suburi,args,opts],(answerdata)=>{
+                                    that.answer(addr,[7,id,answerdata])
+                                }, (errcode,errmsg)=>{
+                                    that.answer(addr,[5,id,errcode,errmsg]); 
+                                });
+                            } else {
+                                console.log('unexpected descr'+JSON.stringify(payload));
+                                this.answer(addr,[5,id,404,"no such uri"]);
+                            }
+                        }
+                    }
+                    break;
+                }
+                case 7: { // [DESCRIPTION, DESCRIBE.Request:id, description:list, Options:dict]	description response
                     let t = this.transactions.get(key);
                     if (t !== undefined) { 
                         clearTimeout(t.timeout); 
@@ -82,17 +130,21 @@ class ITMP extends EventEmitter {
                         let [result, properties] = payload;
                         t.done(result, properties);
                     } else {
-                        console.log('unexpected result',msg);
+                        console.log('unexpected result',JSON.stringify(msg));
                     }
                     break;
                 }
             //RPC	
                 case 8: {// [CALL, Request:id, Procedure:uri, Arguments, Options:dict]	call
                     let [uri, args, opts] = payload;
+                    var that = this;
                     if (uri === ""){
                         let ret = {};
+                        for(let lnk of this.urls.keys()) {
+                            ret[lnk] = ": function";
+                        }
                         for(let lnk of this.links.keys()) {
-                          ret[lnk] = "*";
+                            ret[lnk] = "*";
                         }
                         this.answer(addr,[9,id,ret]);
                     } else {
@@ -101,8 +153,17 @@ class ITMP extends EventEmitter {
                             let ret = f.call(args,opts);
                             this.answer(addr,[9,id,ret]);
                         } else {
-                            console.log('unexpected call'+JSON.stringify(payload));
-                            this.answer(addr,[5,id,404,"no such uri"]);
+                            let [link, subaddr, suburi=""] = this.getLink(uri);
+                            if (link !== undefined){
+                                this.transactionLink(link,subaddr,[8,0,suburi,args,opts],(answerdata)=>{
+                                    that.answer(addr,[9,id,answerdata])
+                                }, (errcode,errmsg)=>{
+                                    that.answer(addr,[5,id,errcode,errmsg]); 
+                                });
+                            } else {
+                                console.log('unexpected call'+JSON.stringify(payload));
+                                this.answer(addr,[5,id,404,"no such uri"]);
+                            }
                         }
                     }
                     break;
@@ -158,9 +219,23 @@ class ITMP extends EventEmitter {
                     console.log("published",msg);
                     break;
                 //subscribe	
-                case 16: // [SUBSCRIBE, Request:id, Topic:uri, Options:dict]	subscribe
+                case 16: {// [SUBSCRIBE, Request:id, Topic:uri, Options:dict]	subscribe
                     console.log("subscribу",msg);
-                    break;
+                    let [uri, opts] = payload;
+                    let [link, subaddr, suburi=""] = this.getLink(uri);
+                    if (link !== undefined){
+                        link.subscribe(subaddr, suburi, opts,(answerdata)=>{
+                            this.answer(addr,[17,id,answerdata])
+                        }, (errcode,errmsg)=>{
+                            this.answer(addr,[5,id,errcode,errmsg]); 
+                        });
+                        this.pollsubs.set(link.lnkname+"/"+subaddr+"/"+suburi,addr);
+                    } else {
+                        console.log('unexpected subs'+JSON.stringify(payload));
+                        this.answer(addr,[5,id,404,"no such uri"]);
+                    }
+                break;
+                }
                 case 17: {// [SUBSCRIBED, SUBSCRIBE.Request:id, Options:dict]	subscription confirmed
                     let t = this.transactions.get(key);
                     if (t !== undefined) {
@@ -214,8 +289,8 @@ class ITMP extends EventEmitter {
             }
         }
         var link=this.links.get(linkname);
-        if (typeof link !== 'object')
-            err(typeof link);
+        if (typeof link !== 'object' && typeof err === 'function')
+            err(500, "no link");
 
         var that = this;
 
@@ -224,27 +299,27 @@ class ITMP extends EventEmitter {
         //var timerId = setTimeout( (key)=>{ var prom = that.transactions.get(key); that.transactions.delete(key); prom.err("timeout"); }, 2000, key);
         //that.transactions.set(key, {'done':done, 'err':err, 'timeout':timerId, 'msg':msg} );
     }
-
-    transaction(addr, msg, done, err) {
-        var subaddr="";
-        var linkname="";
-        if (typeof addr === 'string') {
-            var addrparts = addr.split('/',2);
-            if (Array.isArray(addrparts)){
-                linkname = addrparts[0];
-                subaddr = addrparts[1];
-            } else {
-                linkname = addr;
-            }
-        }
+    getLink(addr){
+        var [linkname,subaddr,uri] = addr.split('/',3);
         var link=this.links.get(linkname);
+        if (!link || !link.addressable) {
+            if (uri) return [link,undefined,`${subaddr}/${uri}`];
+            else return [link,undefined,subaddr];
+        }
+        return [link,subaddr,uri];
+    }
+
+    transactionLink(link,subaddr="", msg, done, err) {
         if (typeof link !== 'object')
-            err(typeof link);
+            err(500,'no link found');
 
         var that = this;
+        if (typeof msg[1] === "number"){
+            msg[1] = this.msgid++;  
+        }
 
         link.send(subaddr,msg,done,err);
-        var key = addr+":"+((typeof msg[1] === "number" ) ? msg[1] : "");
+        var key = link.lnkname+"/"+subaddr+":"+((typeof msg[1] === "number" ) ? msg[1] : "");
         var timerId = setTimeout( (key)=>{ var prom = that.transactions.get(key); that.transactions.delete(key); 
             if (typeof prom.err === 'function')
                 prom.err("timeout"); 
@@ -252,27 +327,61 @@ class ITMP extends EventEmitter {
         that.transactions.set(key, {'done':done, 'err':err, 'timeout':timerId, 'msg':msg} );
     }
 
+    transaction(addr, msg, done, err) {
+        let [linkname,subaddr = ""] = addr.split("/",2);
+        var link=this.links.get(linkname);
+
+
+        if (typeof link !== 'object') {
+            if (typeof err === 'function')
+                err(500,"no such link");
+            return;
+        }
+        if (typeof msg[1] === "number"){
+            msg[1] = this.msgid++;  
+        }
+        var that = this;
+
+        link.send(subaddr,msg,done,err);
+        var key = addr+":"+((typeof msg[1] === "number" ) ? msg[1] : "");
+        var timerId = setTimeout( (key)=>{ var prom = that.transactions.get(key); that.transactions.delete(key); 
+                if (typeof prom.err === 'function')
+                prom.err(504,"timeout"); 
+        }, 2000, key);
+        that.transactions.set(key, {'done':done, 'err':err, 'timeout':timerId, 'msg':msg} );
+    }
+
+    emitEvent(topic, msg) {
+        var to = this.pollsubs.get(topic);
+        if (to) {
+            var [link, subaddr, uri=""] = this.getLink(to);
+            if (typeof link !== 'object') {
+                return;
+            }
+            let id = this.msgid++;  
+            var that = this;
+
+            link.send(subaddr,[13,id,topic,msg]);//,done,err);
+        }
+    }
+
     call(addr, name, param, done, err) {
-        var id = this.msgid++;
-        var msg=[8,id,name,[param]];
+        var msg=[8,0,name,[param]];
         return this.transaction(addr,msg,done,err);
     }
 
     connect(addr, name, param, done, err) {
-        var id = this.msgid++;
-        var msg=[0,id,name,[param]];
+        var msg=[0,0,name,[param]];
         return this.transaction(addr,msg,done,err);
     }
 
     describe(addr,name,done,err) {
-        var id = this.msgid++;
-        var msg=[6,id,name];
+        var msg=[6,0,name];
         return this.transaction(addr,msg,done,err);
     }
     
     subscribe(addr, url, param, done, err){
-        var id = this.msgid++;
-        var msg=[16,id,url,param];
+        var msg=[16,0,url,param];
         return this.transaction(addr,msg,done,err);
     }
 
@@ -281,11 +390,10 @@ class ITMP extends EventEmitter {
         let t = this.subscriptions.get(subskey);
         if (t !== undefined) {
             this.subscriptions.delete(subskey);
-            var id = this.msgid++;
-            var msg=[18,id,url,param];
+            var msg=[18,0,url,param];
             return this.transaction(addr,msg,done,err);
         } else {
-            err('subscription not found');
+            err(404,'subscription not found');
         }
     }
     addCall(name,func) {

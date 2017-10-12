@@ -48,7 +48,7 @@ class mot823 extends itmpnode {
         if (typeof done === 'function')
             done({l:this.leftpos,r:this.rightpos,t:this.lastread,d:this.distance,b:this.bumper});
     }
-    goto (left,right,speed,acc) {
+    goto (left,right,speed,acc,speedright,accright) {
         var param;
         switch(arguments.length) {
             case 2: 
@@ -68,13 +68,22 @@ class mot823 extends itmpnode {
                 param.writeInt32LE(right, 4);
                 param.writeInt32LE(speed, 8);
                 param.writeInt32LE(acc, 12);
-                break;
+            break;
+            case 6: 
+                param = Buffer.allocUnsafe(24);
+                param.writeInt32LE(left, 0);
+                param.writeInt32LE(right, 4);
+                param.writeInt32LE(speed, 8);
+                param.writeInt32LE(acc, 12);
+                param.writeInt32LE(speedright, 16);
+                param.writeInt32LE(accright, 20);
+            break;
             default: throw new Error('illegal argument count')
         }
         var that = this;
-        this.itmp.call(addr, "to", param, (data) => {that.processstatus(data);} );
+        this.itmp.call(this.addr, "to", param, (data) => {that.processstatus(data);} );
     }
-    setspeed (left,right,acc) {
+    setspeed (left,right,acc,accright) {
         var param;
         switch(arguments.length) {
             case 2: 
@@ -86,9 +95,16 @@ class mot823 extends itmpnode {
                 param = Buffer.allocUnsafe(12);
                 param.writeInt32LE(left, 0);
                 param.writeInt32LE(right, 4);
-                param.writeInt32LE(speed, 8);
+                param.writeInt32LE(acc, 8);
             break;
-            default: throw new Error('illegal argument count')
+            case 4: 
+                param = Buffer.allocUnsafe(16);
+                param.writeInt32LE(left, 0);
+                param.writeInt32LE(right, 4);
+                param.writeInt32LE(acc, 8);
+                param.writeInt32LE(accright, 12);
+                break;
+        default: throw new Error('illegal argument count')
         }
         var that = this;
         this.itmp.call(addr, "sp", param, (data) => {that.processstatus(data);} );
