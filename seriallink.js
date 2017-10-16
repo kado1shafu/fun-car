@@ -41,8 +41,29 @@ class ITMPSerialLink {
         });
         this.port.on('open', function() { // open logic
             that.ready = true; // port opened flag
-          });
-    }
+            console.log('open');
+        });
+        this.reopen = (that)=>{
+            if (! that.port.isOpen) {
+                that.port.open((err)=>{
+                    setTimeout(that.reopen,1000,that);
+                });
+            }
+        }
+        this.port.on('close', function() { // open logic
+            that.ready = false; // port opened flag
+            setTimeout(that.reopen,1000,that);
+            console.log('close');
+        });
+        this.ports = {};
+        SerialPort.list(function (err, ports) {
+            ports.forEach(function(port) {
+                that.ports[port.comName] = port;
+                //console.log(port.comName+JSON.stringify(port));
+                //console.log(port.manufacturer);
+              });
+            });
+      }
 
     subscribe(subaddr, suburi, opts,done, err){
         var that  = this;
@@ -69,6 +90,9 @@ class ITMPSerialLink {
         }
     }
 
+    call(subaddr, suburi){
+          return this.ports;
+    }
 
     income(data) {
         for (var i=0;i<data.length;i++){
@@ -107,7 +131,7 @@ class ITMPSerialLink {
             var [addr,msg] = this.msgqueue.shift();
             this.cur_addr = addr;
             clearTimeout ( this.timerId );
-            this.timerId = setTimeout(() => { that.timeisout(); },1000);
+            this.timerId = setTimeout(() => { that.timeisout(); },200);
             this.internalsend(addr, msg);
         } else {
             this.cur_addr = 0;

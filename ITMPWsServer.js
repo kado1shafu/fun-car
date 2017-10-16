@@ -46,7 +46,11 @@
     send(addr, binmsg) {
         var that = this;
         if (this.ready) {
+            try {
             this.ws.send(JSON.stringify(binmsg));
+            } catch (err) {
+
+            }
         } else {
             this.msgqueue.push([addr,binmsg]);
         }

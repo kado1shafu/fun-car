@@ -16,7 +16,7 @@ class mot823 extends itmpnode {
     constructor(itmp, addr) {
         super(itmp, addr);
         var that = this;
-        itmp.connect(addr,"",null,()=>{
+        /*itmp.connect(addr,"",null,()=>{
             itmp.describe(addr,"",(description)=>{
                 that.description = description;
             });
@@ -31,7 +31,7 @@ class mot823 extends itmpnode {
                     that.links.push(lnk);
                   }
             }
-        });
+        });*/
 }
     processstatus(data, done) {
         this.leftpos=data.readInt32LE(0);
@@ -110,11 +110,12 @@ class mot823 extends itmpnode {
         this.itmp.call(addr, "sp", param, (data) => {that.processstatus(data);} );
     }
     setpower (left,right) {
-        var param = Buffer.allocUnsafe(8);
-        param.writeInt32LE(left, 0);
-        param.writeInt32LE(right, 4);
+        var param = Buffer.allocUnsafe(4);
+        param.writeInt16LE(left, 0);
+        param.writeInt16LE(right, 2);
         var that = this;
-        this.itmp.call(addr, "go", param, (data) => {that.processstatus(data);} );
+        if (this.itmp.queueSize(this.addr)<1);
+            this.itmp.call(this.addr, "go", param, (data) => {that.processstatus(data);} );
     }
     setservo (first,second) {
         var param = Buffer.allocUnsafe(4);

@@ -100,7 +100,7 @@ class ITMP extends EventEmitter {
                     let [uri, args, opts] = payload;
                     var that = this;
                     if (uri === ""){
-                        this.answer(addr,[7,id,"super puper"]);
+                        this.answer(addr,[7,id,"js root"]);
                     } else {
                         let f=this.urls.get(uri);
                         if (f !== undefined) {
@@ -155,11 +155,15 @@ class ITMP extends EventEmitter {
                         } else {
                             let [link, subaddr, suburi=""] = this.getLink(uri);
                             if (link !== undefined){
-                                this.transactionLink(link,subaddr,[8,0,suburi,args,opts],(answerdata)=>{
-                                    that.answer(addr,[9,id,answerdata])
-                                }, (errcode,errmsg)=>{
-                                    that.answer(addr,[5,id,errcode,errmsg]); 
-                                });
+                                if (link.call) {
+                                    this.answer(addr,[9,id,link.call(subaddr, suburi)]);
+                                } else {
+                                    this.transactionLink(link,subaddr,[8,0,suburi,args,opts],(answerdata)=>{
+                                        that.answer(addr,[9,id,answerdata])
+                                    }, (errcode,errmsg)=>{
+                                        that.answer(addr,[5,id,errcode,errmsg]); 
+                                    });
+                                }
                             } else {
                                 console.log('unexpected call'+JSON.stringify(payload));
                                 this.answer(addr,[5,id,404,"no such uri"]);
@@ -220,19 +224,29 @@ class ITMP extends EventEmitter {
                     break;
                 //subscribe	
                 case 16: {// [SUBSCRIBE, Request:id, Topic:uri, Options:dict]	subscribe
-                    console.log("subscribу",msg);
+                    //console.log("subscribу",msg);
                     let [uri, opts] = payload;
-                    let [link, subaddr, suburi=""] = this.getLink(uri);
-                    if (link !== undefined){
-                        link.subscribe(subaddr, suburi, opts,(answerdata)=>{
-                            this.answer(addr,[17,id,answerdata])
-                        }, (errcode,errmsg)=>{
-                            this.answer(addr,[5,id,errcode,errmsg]); 
-                        });
-                        this.pollsubs.set(link.lnkname+"/"+subaddr+"/"+suburi,addr);
+                    let f=this.urls.get(uri);
+                    if (f !== undefined && f.subscribe) {
+                        var s = {addr:addr};
+                        let ret = f.subscribe(uri,opts,s);
+                        this.answer(addr,[17,id,ret]);
+                        this.pollsubs.set(uri,s);
                     } else {
-                        console.log('unexpected subs'+JSON.stringify(payload));
-                        this.answer(addr,[5,id,404,"no such uri"]);
+                        let [link, subaddr, suburi=""] = this.getLink(uri);
+                        if (link !== undefined){
+                            if (link.subscribe) {
+                                link.subscribe(subaddr, suburi, opts,(answerdata)=>{
+                                    this.answer(addr,[17,id,answerdata])
+                                }, (errcode,errmsg)=>{
+                                    this.answer(addr,[5,id,errcode,errmsg]); 
+                                });
+                                this.pollsubs.set(link.lnkname+"/"+subaddr+"/"+suburi,{addr:addr});
+                            }
+                        } else {
+                            console.log('unexpected subs'+JSON.stringify(payload));
+                            this.answer(addr,[5,id,404,"no such uri"]);
+                        }
                     }
                 break;
                 }
@@ -251,6 +265,7 @@ class ITMP extends EventEmitter {
                 }
                 case 18: {// [UNSUBSCRIBE, Request:id, Topic:uri, Options:dict]	
                     console.log("unsubscribe",msg);
+                    //this.pollsubs.set(uri,s);
                     break;
                 }
                 case 20: {// [UNSUBSCRIBED, UNSUBSCRIBE.Request:id, Options:dict]	
@@ -354,7 +369,7 @@ class ITMP extends EventEmitter {
     emitEvent(topic, msg) {
         var to = this.pollsubs.get(topic);
         if (to) {
-            var [link, subaddr, uri=""] = this.getLink(to);
+            var [link, subaddr, uri=""] = this.getLink(to.addr);
             if (typeof link !== 'object') {
                 return;
             }
@@ -399,8 +414,12 @@ class ITMP extends EventEmitter {
     addCall(name,func) {
         this.urls.set(name,{call:func});
     }
+
+    addSubscribe(name,func) {
+        this.urls.set(name,{subscribe:func});
+    }
       
-    queueSize(addr){
+    queueSize(addr) {
         var subaddr="";
         var linkname="";
         if (typeof addr === 'string') {
